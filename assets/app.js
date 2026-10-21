@@ -226,35 +226,54 @@
       } catch (e) { /* 退回 API */ }
     }
 
-    if (!entries) {
+    var apiErr = null;
+    if (entries === null) {
       showStatusLoading();
-      var files = await fetchContents();
+      try {
+        var files = await fetchContents();
 
-      /* sidecar（如 foo.pdf.json）元信息 */
-      var sidecarMap = {};
-      files.forEach(function (f) {
-        if (C.isSidecarName(f.name) && f.content) {
-          var key = C.sidecarKeyOf(f.name);
-          try { sidecarMap[key] = C.metaFromSidecar(C.b64ToUtf8(f.content)); } catch (e) {}
-        }
-      });
+        /* sidecar（如 foo.pdf.json）元信息 */
+        var sidecarMap = {};
+        files.forEach(function (f) {
+          if (C.isSidecarName(f.name) && f.content) {
+            var key = C.sidecarKeyOf(f.name);
+            try { sidecarMap[key] = C.metaFromSidecar(C.b64ToUtf8(f.content)); } catch (e) {}
+          }
+        });
 
-      /* 每篇 .md 的 front matter（并行 + sha 缓存） */
-      var mdMetaMap = {};
-      var mdFiles = files.filter(function (f) {
-        var c0 = f.name.charAt(0);
-        return /\.(md|markdown)$/i.test(f.name) && c0 !== '_' && c0 !== '.';
-      });
-      await Promise.all(mdFiles.map(async function (f) {
-        try {
-          var t = await fetchRawText(f.name, f.sha);
-          mdMetaMap[f.name] = C.metaFromFrontMatter(f.name, C.parseFrontMatter(t).meta);
-        } catch (e) { /* 单篇失败不影响整体 */ }
-      }));
+        /* 每篇 .md 的 front matter（并行 + sha 缓存） */
+        var mdMetaMap = {};
+        var mdFiles = files.filter(function (f) {
+          var c0 = f.name.charAt(0);
+          return /\.(md|markdown)$/i.test(f.name) && c0 !== '_' && c0 !== '.';
+        });
+        await Promise.all(mdFiles.map(async function (f) {
+          try {
+            var t = await fetchRawText(f.name, f.sha);
+            mdMetaMap[f.name] = C.metaFromFrontMatter(f.name, C.parseFrontMatter(t).meta);
+          } catch (e) { /* 单篇失败不影响整体 */ }
+        }));
 
-      entries = C.buildEntries(files, mdMetaMap, sidecarMap);
-      state.dataSource = 'api';
+        entries = C.buildEntries(files, mdMetaMap, sidecarMap);
+        state.dataSource = 'api';
+      } catch (err) {
+        apiErr = err;    /* 记住原因，降级也失败时给用户看 */
+      }
     }
+
+    if (entries === null && !cfg.useIndexJson) {
+      /* API 失败（被代理拦掉 CORS / 匿名限流等）→ 降级读同源 index.json */
+      try {
+        var res3 = await fetch(rawBase(r.papersDir) + 'index.json', { cache: 'no-store' });
+        if (res3.ok) {
+          var j3 = await res3.json();
+          entries = C.buildEntries((j3 && j3.papers) || [], {}, {});
+          state.dataSource = 'index.json（降级）';
+        }
+      } catch (e) { /* 两种方式都失败，走下面的报错 */ }
+    }
+
+    if (entries === null) throw (apiErr || new Error('无法读取论文列表'));
 
     state.entries = entries;
     state.unconfigured = false;
