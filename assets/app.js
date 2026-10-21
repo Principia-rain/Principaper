@@ -114,6 +114,22 @@
 
   function ghApiUrl(pathInRepo) { return C.apiUrl(repo(), pathInRepo); }
 
+  /* 站点自身部署基地址（同源）：
+   * https://owner.github.io/repo/... → https://owner.github.io/repo/
+   * 用户主页 / 自定义域名 → origin + '/'
+   * 同源文件不存在 CORS 问题，也不占 GitHub API 配额，
+   * 是代理/限流环境下降级加载的最可靠数据源。 */
+  function siteBase() {
+    try {
+      var host = String(window.location.hostname || '').toLowerCase();
+      var segs = window.location.pathname.split('/').filter(Boolean);
+      if (/\.github\.io$/.test(host) && segs.length) {
+        return window.location.origin + '/' + C.encSeg(segs[0]) + '/';
+      }
+      return window.location.origin + '/';
+    } catch (e) { return '/'; }
+  }
+
   async function apiError(res, prefix) {
     var msg = prefix || '请求失败';
     try {
@@ -163,12 +179,23 @@
     var hit = lsGet(key, ttl);
     if (hit != null) return hit;
 
-    var url = rawBase(r.papersDir) + C.encSeg(name);
-    var res = await fetch(url);
-    if (!res.ok) throw new Error('读取论文失败（HTTP ' + res.status + '）：' + name);
-    var text = await res.text();
-    if (text.length < 300000) lsSet(key, text);
-    return text;
+    /* 同源（GitHub Pages）优先；失败再试 raw.githubusercontent.com */
+    var dir = r.papersDir.split('/').filter(Boolean).map(C.encSeg).join('/');
+    var candidates = [
+      siteBase() + (dir ? dir + '/' : '') + C.encSeg(name),
+      rawBase(r.papersDir) + C.encSeg(name)
+    ];
+    for (var i = 0; i < candidates.length; i++) {
+      try {
+        var res = await fetch(candidates[i], { cache: 'no-store' });
+        if (res.ok) {
+          var text = await res.text();
+          if (text.length < 300000) lsSet(key, text);
+          return text;
+        }
+      } catch (e) { /* 试下一个候选地址 */ }
+    }
+    throw new Error('读取论文失败：' + name);
   }
 
   function loadIndex(force) {
@@ -263,14 +290,22 @@
 
     if (entries === null && !cfg.useIndexJson) {
       /* API 失败（被代理拦掉 CORS / 匿名限流等）→ 降级读同源 index.json */
-      try {
-        var res3 = await fetch(rawBase(r.papersDir) + 'index.json', { cache: 'no-store' });
-        if (res3.ok) {
-          var j3 = await res3.json();
-          entries = C.buildEntries((j3 && j3.papers) || [], {}, {});
-          state.dataSource = 'index.json（降级）';
-        }
-      } catch (e) { /* 两种方式都失败，走下面的报错 */ }
+      var dirSeg = r.papersDir.split('/').filter(Boolean).map(C.encSeg).join('/');
+      var idxCandidates = [
+        siteBase() + (dirSeg ? dirSeg + '/' : '') + 'index.json',
+        rawBase(r.papersDir) + 'index.json'
+      ];
+      for (var ci = 0; ci < idxCandidates.length; ci++) {
+        try {
+          var res3 = await fetch(idxCandidates[ci], { cache: 'no-store' });
+          if (res3.ok) {
+            var j3 = await res3.json();
+            entries = C.buildEntries((j3 && j3.papers) || [], {}, {});
+            state.dataSource = 'index.json（降级）';
+            break;
+          }
+        } catch (e) { /* 试下一个候选地址 */ }
+      }
     }
 
     if (entries === null) throw (apiErr || new Error('无法读取论文列表'));
@@ -621,10 +656,17 @@
         var key = CK().about;
         var hit = lsGet(key, 3600 * 1000);
         if (hit != null) return Promise.resolve(hit);
-        return fetch(rawBase('') + C.encSeg(name)).then(function (res) {
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          return res.text();
-        }).then(function (t) { lsSet(key, t); return t; });
+        var candidates = [siteBase() + C.encSeg(name), rawBase('') + C.encSeg(name)];
+        var chain = Promise.reject();
+        candidates.forEach(function (url) {
+          chain = chain.catch(function () {
+            return fetch(url, { cache: 'no-store' }).then(function (res) {
+              if (!res.ok) throw new Error('HTTP ' + res.status);
+              return res.text();
+            });
+          });
+        });
+        return chain.then(function (t) { lsSet(key, t); return t; });
       })();
       view.innerHTML = '<div class="about-col">' +
         '<h1 class="page-title">' + esc(cfg.aboutTitle || '关于本站') + '</h1>' +
