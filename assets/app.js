@@ -636,7 +636,8 @@
       view.innerHTML = head +
         '<div class="pdf-frame"><iframe src="' + esc(pdfUrl) + '#view=FitH" title="' + esc(e.title) + '"></iframe></div>' +
         '<p class="pdf-note">若上方无法显示（部分手机浏览器不支持内嵌 PDF），' +
-        '<a href="' + esc(pdfUrl) + '" target="_blank" rel="noopener">在新标签页打开 ↗</a></p></div>';
+        '<a href="' + esc(pdfUrl) + '" target="_blank" rel="noopener">在新标签页打开 ↗</a></p>' +
+        copyrightHtml(e) + '</div>';
       bindReaderActions(view, e);
       return;
     }
@@ -653,10 +654,24 @@
       if (first && first.tagName === 'H1' && first.textContent.trim() === e.title.trim()) first.remove();
       renderMath(art);
       highlightCode(art);
+      var cp = document.createElement('div');
+      cp.innerHTML = copyrightHtml(e);
+      while (cp.firstChild) art.appendChild(cp.firstChild);
     } catch (err) {
       art.innerHTML = '<div class="error-box">😕 论文内容加载失败：' + esc(err.message || String(err)) + '</div>';
     }
     bindReaderActions(view, e);
+  }
+
+  /* 文末版权声明：作者优先取论文元信息，缺省回退仓库名（站主） */
+  function copyrightHtml(e) {
+    var author = (e && e.author ? e.author : '').trim() || (repo().ok ? repo().owner : 'Principia-rain');
+    var year = (e && e.date ? String(e.date) : String(new Date().toISOString().slice(0, 10))).slice(0, 4);
+    if (!/^\d{4}$/.test(year)) year = String(new Date().getFullYear());
+    return '<div class="paper-copyright">' +
+      '<span>© ' + esc(year) + ' ' + esc(author) + ' · 保留所有权利</span>' +
+      '<span class="pc-license">转载请注明出处；商业使用需事先获得作者授权。</span>' +
+      '</div>';
   }
 
   function bindReaderActions(view, e) {
