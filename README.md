@@ -165,4 +165,6 @@ paper-site/
 
 ## 许可
 
-站点代码可自由使用与修改。论文内容版权归各作者所有。
+本站代码与站主论文采用 [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh) 许可：
+可自由转载与演绎，但需署名（Principia-rain 及本站链接）、不得用于商业目的、衍生作品需同许可。
+若未来经作者授权收录他人论文，其版权与许可以论文页面标注为准。
