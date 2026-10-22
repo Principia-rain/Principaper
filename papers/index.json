@@ -1,7 +1,18 @@
 {
-  "generatedAt": "2026-10-22T14:10:58+00:00",
+  "generatedAt": "2026-10-22T14:28:25+00:00",
   "generator": "tools/build_index.py",
   "papers": [
+    {
+      "name": "Kleppner精读讲义.md",
+      "type": "md",
+      "title": "Kleppner《力学引论》精读讲义",
+      "author": "个人学习笔记",
+      "date": "2026-10-22",
+      "abstract": "",
+      "tags": [],
+      "code": [],
+      "size": 37277
+    },
     {
       "name": "一步条件熵混沌判据.md",
       "type": "md",
