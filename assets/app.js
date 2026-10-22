@@ -64,7 +64,8 @@
   function CK() {
     var r = repo();
     return {
-      list: 'ps_list:' + r.owner + '/' + r.repo,
+      /* 版本号 v3：修改缓存结构时递增，旧键（含被污染的空列表）自动作废 */
+      list: 'ps_list:v3:' + r.owner + '/' + r.repo,
       about: 'ps_about:' + r.owner + '/' + r.repo
     };
   }
@@ -205,6 +206,30 @@
     return state.loadingPromise;
   }
 
+  /* 读同源（优先）/ raw 的 index.json；只有非空结果才算数，返回条目数组或 null */
+  async function tryIndexJson(dataSourceLabel) {
+    var r = repo();
+    var dirSeg = r.papersDir.split('/').filter(Boolean).map(C.encSeg).join('/');
+    var candidates = [
+      siteBase() + (dirSeg ? dirSeg + '/' : '') + 'index.json',
+      rawBase(r.papersDir) + 'index.json'
+    ];
+    for (var ci = 0; ci < candidates.length; ci++) {
+      try {
+        var res = await fetch(candidates[ci], { cache: 'no-store' });
+        if (res.ok) {
+          var j = await res.json();
+          var es = C.buildEntries((j && j.papers) || [], {}, {});
+          if (es.length) {
+            state.dataSource = dataSourceLabel;
+            return es;
+          }
+        }
+      } catch (e) { /* 试下一个候选地址 */ }
+    }
+    return null;
+  }
+
   async function loadIndexInner(force) {
     var r = repo();
     var entries = null;
@@ -288,31 +313,25 @@
       }
     }
 
+    /* API 返回空列表不可信（代理缓存的旧响应/瞬时空窗）：
+       用同源 index.json 交叉验证，非空则以 index.json 为准 */
+    if (entries !== null && entries.length === 0 && !cfg.useIndexJson) {
+      var verified = await tryIndexJson('index.json（校验）');
+      if (verified) entries = verified;
+    }
+
     if (entries === null && !cfg.useIndexJson) {
       /* API 失败（被代理拦掉 CORS / 匿名限流等）→ 降级读同源 index.json */
-      var dirSeg = r.papersDir.split('/').filter(Boolean).map(C.encSeg).join('/');
-      var idxCandidates = [
-        siteBase() + (dirSeg ? dirSeg + '/' : '') + 'index.json',
-        rawBase(r.papersDir) + 'index.json'
-      ];
-      for (var ci = 0; ci < idxCandidates.length; ci++) {
-        try {
-          var res3 = await fetch(idxCandidates[ci], { cache: 'no-store' });
-          if (res3.ok) {
-            var j3 = await res3.json();
-            entries = C.buildEntries((j3 && j3.papers) || [], {}, {});
-            state.dataSource = 'index.json（降级）';
-            break;
-          }
-        } catch (e) { /* 试下一个候选地址 */ }
-      }
+      var fallback = await tryIndexJson('index.json（降级）');
+      if (fallback) entries = fallback;
     }
 
     if (entries === null) throw (apiErr || new Error('无法读取论文列表'));
 
     state.entries = entries;
     state.unconfigured = false;
-    lsSet(CK().list, entries);
+    /* 空列表不写缓存：空几乎总是瞬时的误报，下次访问重新探测 */
+    if (entries.length) lsSet(CK().list, entries);
     renderList();
     return entries;
   }
