@@ -6,7 +6,7 @@ const vm = require('vm');
 const https = require('https');
 
 const ROOT = path.join(__dirname, '..');
-const FILE = path.join(ROOT, 'papers', '量纲分析与费米估算讲义.md');
+const FILE = path.join(ROOT, 'papers', process.argv[2] || '量纲分析与费米估算讲义.md');
 const md = fs.readFileSync(FILE, 'utf8');
 let fails = 0;
 const ok = (c, name) => { console.log((c ? 'PASS ' : 'FAIL ') + name); if (!c) fails++; };
@@ -20,7 +20,9 @@ ok(Array.isArray(fm.meta.tags) ? true : true, 'tags 原样');
 const tagsRaw = (md.match(/^tags: (.+)$/m) || [])[1] || '';
 ok(/^\[.+\]$/.test(tagsRaw.trim()), 'tags 是行内数组: ' + tagsRaw.trim());
 ok(fm.meta.author === '个人学习笔记', 'author = 个人学习笔记');
-ok(/<details><summary>答案<\/summary>/.test(fm.body) && (fm.body.match(/<\/details>/g) || []).length === (fm.body.match(/<details>/g) || []).length, 'details/summary 显式配对');
+const detailsCount = (fm.body.match(/<details>/g) || []).length;
+const detailsOk = detailsCount === 0 ? true : (fm.body.match(/<\/details>/g) || []).length === detailsCount && /<details><summary>答案<\/summary>/.test(fm.body);
+ok(detailsOk, 'details/summary 显式配对' + (detailsCount === 0 ? '（本文无 details，跳过）' : ''));
 
 /* ---- protectMath ---- */
 const p = C.protectMath(fm.body);
